@@ -1,0 +1,70 @@
+---
+title: "UC Santa Cruz"
+knit: (function(inputFile, encoding) { 
+      out_dir <- '../../docs';
+      rmarkdown::render(inputFile,
+                        encoding=encoding, 
+                        output_file=file.path(dirname(inputFile), out_dir, 'uc_santa_cruz.html')) })
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
+
+library(sf)
+library(tidyverse)
+library(leaflet)
+library(htmltools)
+library(reshape2)
+library(scales)
+library(plotly)
+library(kableExtra)
+library(readr)
+# source("scripts/docs/func.R")
+```
+
+## Survey Analysis
+### Travel Pattern To/From Campus
+
+**Total number of trips by mode**: text
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+modeshare <- read_rds("../../output/ucsc/modeshare.rds")
+
+fig <- plot_ly(modeshare, 
+               x = 1, 
+               y = ~mode_pct , 
+               name = '2019 trips to/from D.C.', 
+               # type = 'scatter', 
+               mode = 'bar') 
+fig <- fig %>% 
+  add_trace(y = ~mode_pct, 
+            name = '2022 trips to/from D.C.') %>% 
+  layout(title = "Travel Pattern: Time of Day",
+         xaxis = list(title = "Time of Day"),
+         yaxis = list (title = "Avg. Trip Volume"))
+
+fig
+```
+
+
+
+
+
+![Plot1](../../output/ucsc/0_mode_share_all.png)
+**Mode count**: text
+![Plot1](../../output/ucsc/0_mode_share.png "Plot1")
+**Mode frequency by time of day**: text
+![Plot1](../../output/ucsc/0_frequency_all.png "Plot1")
+
+### Travel Pattern On Campus
+**Mode count**: text
+![Plot1](../../output/ucsc/0_on_campus_mode_share.png "Plot1")
+
+**Mode frequency by time of day**: text
+![Plot1](../../output/ucsc/1_on_campus_frequency_all.png "Plot1")
+

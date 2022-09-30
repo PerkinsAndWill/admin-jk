@@ -1,0 +1,22 @@
+name: "admin-jk"
+output_dir: "../../docs"
+navbar:
+  title: "admin-jk"
+  left: 
+    - text: "Home"
+      href: index.html    
+    # - text: "UC Santa Cruz"
+    #   href: uc_santa_cruz.html
+    - text: "Lihu'e Mobility"
+      href: lihue-mobility.html
+    # - text: "Bicycle"
+    #   href: analysis_bicycle.html
+    # - text: "Pedestrian"
+    #   href: analysis_ped.html
+
+  # right: 
+  #   - icon: fab fa-github
+  #     href: https://github.com/PerkinsAndWill/bdat_project_module
+output:
+  html_document:
+    theme: paper

@@ -1,0 +1,20 @@
+---
+title: "admin-jk"
+knit: (function(inputFile, encoding) { 
+      out_dir <- '../../docs';
+      rmarkdown::render(inputFile,
+                        encoding=encoding, 
+                        output_file=file.path(dirname(inputFile), out_dir, 'index.html')) })
+output: 
+  html_document: 
+    toc_float: true
+---
+
+# Welcome
+
+Repository of R tasks.
+
+
+## System Summary
+### Implied Mode Share
+**Variables**:   
