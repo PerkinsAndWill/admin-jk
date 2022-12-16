@@ -976,7 +976,7 @@ for(question in 1:length(questions_lst)){
     
     summ_income <- survey_df %>% 
       filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
-      filter(question_num == i, !is.na(answer_text)) %>% 
+      filter(question_num == i, !is.na(answer_text), sub_question_text == sub_question_id) %>% 
       left_join(income_id, by="respondent_id") %>% 
       group_by(answer_text, income_id) %>% 
       summarise(n=n()) %>% 
