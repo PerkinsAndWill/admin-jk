@@ -11,6 +11,7 @@ library(ggrepel)
 proj_dir <- file.path(get_sharepoint_dir(), 
                       "SFCTA - School Access Study - Documents/General/06 Analysis/Surveys")
 
+# Raw Surveys
 survey_en <- read_excel(file.path(proj_dir,
                                   "English/Data_All_Responses/Excel/San Francisco School Access Plan Survey.xlsx")) %>% 
   mutate(language = "English")
@@ -25,6 +26,7 @@ survey_cn <- read_excel(file.path(proj_dir,
   add_column(., `...19` = as.character(NA), .after = 18) %>% 
   mutate(language = "Chinese")
 
+# Translated Open-Responses
 survey_es_other <- read_excel(file.path(proj_dir,
                                         "TASAP_SurveyResponses_forTranslation_11302022.xlsx"),
                               sheet="Spanish") %>% 
@@ -39,16 +41,12 @@ survey_cn_other <- read_excel(file.path(proj_dir,
 ## Schema ====
 questions <- read_excel("data/sfcta/survey_schema.xlsx", sheet="questions")
 answers <- read_excel("data/sfcta/survey_schema.xlsx", sheet="answers")
-answers_tbl <- bind_rows(answers %>% 
-                           select(question_num, answer_num, answer_en, answer_es) %>% 
-                           rename(value=answer_es, answer_text=answer_en) %>% 
-                           mutate(language="Spanish"),
-                         answers %>% 
-                           select(question_num, answer_num, answer_en, answer_cn) %>% 
-                           rename(value=answer_cn, answer_text=answer_en) %>% 
-                           mutate(language="Chinese")) %>% 
-  rename(answer_order = answer_num)
-
+answers_tbl <- answers %>% 
+  select(question_num, answer_num, answer_en, answer_es, answer_cn) %>% 
+  gather("language", "value", answer_es, answer_cn) %>% 
+  mutate(language = case_when(language == "answer_es" ~"Spanish",
+                              language == "answer_cn" ~"Chinese")) %>% 
+  rename(answer_order=answer_num, answer_text=answer_en)
 
 sub_question_text <- survey_en %>% 
   slice(1) %>% 
@@ -57,11 +55,6 @@ sub_question_text <- survey_en %>%
   mutate(col_num = 1:nrow(.))
 
 
-# sub_question_text <- survey_en %>%
-#   slice(1) %>%
-#   mutate(across(everything(), as.character)) %>%
-#   pivot_longer(everything(), names_to = "col_num", values_to = "sub_question_text") %>%
-#   mutate(col_num = 1:nrow(.))
 # 
 # col_defs <- colnames(survey_en) %>%
 #   as_tibble() %>%
@@ -90,21 +83,20 @@ respondent_language_id <- survey_bind %>%
 survey_df <- survey_bind %>% 
   mutate(col_num = as.numeric(col_num)) %>% 
   arrange(respondent_id, col_num) %>% 
+  # remove language temp column
   filter(!col_num == 69) %>% 
-  
+  #
   left_join(sub_question_text, by="col_num") %>% 
   left_join(respondent_language_id, by="respondent_id") %>% 
   left_join(questions %>% select(col_num, question_num), by="col_num") %>% 
-  
   left_join(answers_tbl, by=c("language","question_num","value")) %>% 
+  # join translated responses
   left_join(survey_es_other, by=c("respondent_id","language","col_num","value")) %>% 
   left_join(survey_cn_other, by=c("respondent_id","language","col_num","value")) %>% 
-  
+  # merge translated responses
   mutate(temp_col = coalesce(answer_text, answer_text_other_es, answer_text_other_cn)) %>% 
-  
   mutate(answer_text = case_when(is.na(temp_col) ~value,
                                  TRUE ~temp_col)) %>% 
-  
   select(respondent_id, language, col_num, question_num, question_text,
          sub_question_text, answer_order, value, answer_text)
 
@@ -113,6 +105,7 @@ survey_df <- survey_bind %>%
 respondent_race_id <- survey_df %>% 
   select(respondent_id, col_num, answer_text) %>% 
   filter(col_num %in% c(56:64)) %>% 
+  # ID two or more races
   group_by(respondent_id) %>% 
   mutate(count = sum(!is.na(answer_text))) %>% 
   mutate(answer_text = case_when(count > 1 & !col_num == 62 ~as.character(NA),
@@ -146,19 +139,19 @@ income_levels <- answers %>%
   pull(answer_en)
 
 ## Respondent List ====
-# How many of your children, or the children you take care of, attend school in San Francisco?
+# filter for 0 kids
 respondent_filter_1 <- survey_df %>% 
   select(respondent_id, col_num, answer_text) %>%
   filter(col_num == 10) %>% 
   filter(answer_text %in% c("NONE","0","N/A") | is.na(answer_text)) %>% 
   pull(respondent_id)
-  
+# filter for NOT 2+ kids
 respondent_filter_2 <- survey_df %>% 
-  select(respondent_id, col_num, answer_text) %>% 
+  select(respondent_id, col_num, answer_text) %>%
   filter(col_num == 10) %>% 
   filter(answer_text %in% c("NONE","0","N/A","1","Uno","1 niña") | is.na(answer_text)) %>% 
   pull(respondent_id)
-
+# filter for kids NOT ages 5-11
 respondent_filter_3 <- survey_df %>% 
   select(respondent_id, col_num, answer_text) %>% 
   filter(col_num == 12) %>% 
@@ -166,6 +159,7 @@ respondent_filter_3 <- survey_df %>%
   pull(respondent_id)
 
 num_respondents_total <- length(unique(survey_df$respondent_id))
+# respondent with at least 1 kid AND between ages 5-11
 num_respondents <-length(
   unique(
     survey_df$respondent_id[
@@ -174,16 +168,12 @@ num_respondents <-length(
 
 # DEFINE =======================================================================
 ## Color Palette ====
-# Primary "#006c69"
-# Supplemental Yellow "#ffb81d"
-# Supplemental Red "#c41d4a"
-# Supplemental Blue "#1c355e"
-
+# Sequential
 pal_seq3 <- rev(c('#002423','#036f6c','#69bdb9'))
 pal_seq4 <- rev(c('#003433','#036e6b','#56aaa6','#96eae5'))
 pal_seq5 <- rev(c('#001a15','#004341','#07716e','#4a9f9b','#7cd0cc'))
 pal_seq6 <- rev(c('#002322','#004846','#056f6c','#419793','#6cc0bc','#97ebe6'))
-
+# Diverging
 pal_div3 <- c("#ffb81d","#c41d4a","#006c69")
 pal_div4 <- c("#ffb81d","#c41d4a","#006c69","#1c355e") 
 pal_div5 <- c("#b9d9ec","#ffb81d","#c41d4a","#006c69","#1c355e") 
@@ -193,13 +183,12 @@ pal_div5 <- c("#b9d9ec","#ffb81d","#c41d4a","#006c69","#1c355e")
 ### Question 1 ====
 summ <- survey_df %>% 
   filter(question_num == 1) %>% 
-  mutate(answer_text = case_when(answer_text %in% c("259","70","35") ~"5 or more",
-                                 answer_text %in% c("三个","3 niños") ~"3",
-                                 answer_text == "Two" ~"2",
-                                 str_detect(answer_text, "please note") ~"2",
+  mutate(answer_text = case_when(answer_text %in% c("NONE","0","N/A") ~"0",
                                  answer_text %in% c("Uno","1 niña")  ~"1",
-                                 answer_text %in% c("NONE","0","N/A") ~"0",
-                                 # is.na(answer_text) ~"0",
+                                 answer_text %in% c("Two") ~"2",
+                                 str_detect(answer_text, "please note") ~"2",
+                                 answer_text %in% c("三个","3 niños") ~"3",
+                                 answer_text %in% c("259","70","35") ~"5 or more",
                                  TRUE ~answer_text)) %>% 
   group_by(answer_text) %>% 
   summarise(n=n()) %>% 
@@ -210,12 +199,10 @@ summ <- survey_df %>%
                               ordered=TRUE,
                               levels=rev(.$answer_text)))
 
-num_respondents <- sum(summ$n)
-
 plot_title = paste0(
   str_wrap(
     survey_df %>% filter(question_num == 1) %>% slice(1) %>% pull(question_text), 60),
-  " (N=", num_respondents, ")")
+  " (N=", sum(summ$n), ")")
 
 plt <- ggplot(summ, aes(x="", y=prop, fill=answer_text)) +
   geom_bar(stat="identity", width=1, color="white") +
@@ -236,6 +223,7 @@ print(plt)
 dev.off()
 
 ### Question 2 ====
+# If you care for more than one child, do all children attend the same school? 
 ans_levels <- answers %>% 
   select(1,2,3,4) %>% 
   filter(question_num == 2) %>% 
@@ -243,6 +231,7 @@ ans_levels <- answers %>%
   pull(answer_en)
 
 summ <- survey_df %>% 
+  # filter for 2+ kids
   filter(!respondent_id %in% respondent_filter_2) %>% 
   filter(question_num == 2) %>% 
   group_by(answer_text) %>% 
@@ -278,6 +267,7 @@ print(plt)
 dev.off()
 
 ### Question 3 ====
+# How many of the children you care for are between 5 and 11 years old?
 summ <- survey_df %>%
   filter(!respondent_id %in% respondent_filter_1) %>%
   filter(question_num == 3) %>%
@@ -315,7 +305,7 @@ png(paste0("output/sfcta/plot/q3.png"), width = 8*300, height=6*300, res=300)
 print(plt)
 dev.off()
 
-### Question 24 (Race), 25 (Gender), 26 (Income)====
+### Question 24 (Race), 25 (Gender), 26 (Income), 4 (Car Access) ====
 questions_lst <- c(4, 24, 25, 26)
 
 for(question in 1:length(questions_lst)){
@@ -336,13 +326,7 @@ for(question in 1:length(questions_lst)){
       arrange(desc(answer_num)) %>% 
       pull(answer_en)
   }
-  
-  # num_respondents <-length(
-  #   unique(
-  #     survey_df$respondent_id[
-  #       !survey_df$respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))
-  #     ]))
-  
+
   summ <- survey_df %>% 
     filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
     filter(question_num == i & !is.na(answer_text)) %>% 
@@ -358,13 +342,11 @@ for(question in 1:length(questions_lst)){
     mutate(answer_text = factor(str_wrap(.$answer_text,40),
                                 ordered=TRUE,
                                 levels=str_wrap(ans_levels,40)))
-  
-  num_respondents <- sum(summ$n)
-  
+
   plot_title <- paste0(
     str_wrap(
       survey_df %>% filter(question_num == i) %>% slice(1) %>% pull(question_text), 60),
-    " (N=", num_respondents, ")")
+    " (N=", sum(summ$n), ")")
   
   plt <- ggplot(summ,aes(x=answer_text,y=prop)) +
     geom_bar(stat="identity", fill="#006c69", alpha=0.9) +
@@ -380,137 +362,123 @@ for(question in 1:length(questions_lst)){
   png(paste0("output/sfcta/plot/q",i,".png"), width = 8*300, height=(1+length(ans_levels)*0.4)*300, res=300)
   print(plt)
   dev.off()
-}
-
-### Question 4 (Cross-tabs) ====
-
-i=4
-
-ans_levels = answers %>% 
-  select(1,2,3,4) %>% 
-  filter(question_num == i) %>% 
-  arrange(desc(answer_num)) %>% 
-  pull(answer_en)
-
-summ_race <- survey_df %>% 
-  filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>%  
-  filter(question_num == i, !is.na(answer_text)) %>% 
-  left_join(race_id, by="respondent_id") %>% 
-  group_by(answer_text, race_id) %>% 
-  summarise(n=n()) %>% 
-  ungroup() %>%
-  filter(!is.na(race_id)) %>% 
-  group_by(race_id) %>% 
-  mutate(prop = n/sum(n),
-         race_id_label = paste0(race_id, " (N=", sum(n), ")")) %>% 
-  ungroup()
-
-summ_race_a <- summ_race %>% 
-  filter(answer_text == "Yes") %>% 
-  add_row(answer_text = "Yes",
-          race_id = "Native Hawaiian or other Pacific Islander",
-          n = 0,
-          prop = 0,
-          race_id_label = "Native Hawaiian or other Pacific Islander (N=2)") %>% 
-  arrange(prop, desc(race_id)) %>% 
-  pull(race_id)
   
-summ_race <- summ_race %>% 
-  mutate(answer_text = factor(str_wrap(.$answer_text,40),
-                              ordered=TRUE,
-                              levels=rev(str_wrap(ans_levels,40))),
-         race_id = factor(str_wrap(.$race_id,40),
-                          ordered=TRUE,
-                          levels=str_wrap(summ_race_a,40)))
-
-summ_race_label <- summ_race %>% 
-  distinct(race_id, race_id_label) %>% 
-  arrange(race_id) %>% 
-  pull(race_id_label)
-
-summ_income <- survey_df %>% 
-  filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
-  filter(question_num == i, !is.na(answer_text)) %>% 
-  left_join(income_id, by="respondent_id") %>% 
-  group_by(answer_text, income_id) %>% 
-  summarise(n=n()) %>% 
-  ungroup() %>%
-  filter(!is.na(income_id)) %>% 
-  group_by(income_id) %>%
-  mutate(prop = n/sum(n),
-         income_id_label = paste0(income_id, " (N=", sum(n), ")")) %>% 
-  ungroup() %>% 
-  mutate(answer_text = factor(str_wrap(.$answer_text,40),
-                              ordered=TRUE,
-                              levels=rev(str_wrap(ans_levels,40))),
-         income_id = factor(str_wrap(.$income_id,40),
-                          ordered=TRUE,
-                          levels=str_wrap(income_levels,40)))
-
-summ_income_label <- summ_income %>% 
-  distinct(income_id, income_id_label) %>% 
-  arrange(income_id) %>% 
-  pull(income_id_label)
-
-plot_title = paste0(
-  str_wrap(
-    survey_df %>% filter(question_num == i) %>% slice(1) %>% pull(question_text), 60),
-  " (N=", sum(summ_race$n), ")")
-
-plt <- ggplot(summ_race, aes(x=race_id, y=prop, fill=answer_text, )) +
-  geom_col(position = position_stack(reverse = TRUE)) + 
-  geom_label(aes(x=race_id, y=prop,
-                 label = if_else(prop > 0.01, sprintf("%1.0f%%", prop*100), NULL),
-                 group = answer_text),
-             lineheight = 0.9,
-             position = position_stack(vjust=0.5, reverse=TRUE),
-             color = "white",
-             size = 3,
-             fill = "#666666") +
-  coord_flip() +
-  ggtitle(plot_title) +
-  labs(x="", y="Share of Respondents") +
-  scale_x_discrete(labels = summ_race_label) +
-  scale_y_continuous(labels=scales::percent) +
-  scale_fill_manual(values = rev(pal_div3)) +
-  guides(fill=guide_legend(title=NULL)) +
-  theme(legend.position="bottom") +
-  theme(plot.title = element_text(face="bold"),
-        axis.text=element_text(size=10))
-
-png(paste0("output/sfcta/plot/q",i,"_race.png"), width = 11*300, height=(1+length(race_levels)*0.5)*300, res=300)
-print(plt)
-dev.off()
-
-plot_title = paste0(
-  str_wrap(
-    survey_df %>% filter(question_num == i) %>% slice(1) %>% pull(question_text), 60),
-  " (N=", sum(summ_income$n), ")")
-
-plt <- ggplot(summ_income, aes(fill=answer_text, x=income_id, y=prop)) +
-  geom_col(position = position_stack(reverse = TRUE)) + 
-  geom_label(aes(x=income_id, y=prop, 
-                 label = if_else(prop > 0.01, sprintf("%1.0f%%", prop*100), NULL),
-                 group = answer_text),
-             lineheight = 0.9,
-             position = position_stack(vjust=0.5, reverse=TRUE),
-             color = "white",
-             size = 3,
-             fill = "#666666") +
-  coord_flip() +
-  ggtitle(plot_title) +
-  labs(x="", y="Share of Respondents") +
-  scale_x_discrete(labels = summ_income_label) +
-  scale_y_continuous(labels=scales::percent) +
-  scale_fill_manual(values = rev(pal_div3)) +
-  guides(fill=guide_legend(title=NULL)) +
-  theme(legend.position="bottom") +
-  theme(plot.title = element_text(face="bold"),
-        axis.text=element_text(size=10))
-
-png(paste0("output/sfcta/plot/q",i,"_income.png"), width = 11*300, height=(4+length(ans_levels)*0.5)*300, res=300)
-print(plt)
-dev.off()
+  # Cross tabs for Q4
+  if(i==4){
+    summ_race <- survey_df %>% 
+      filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>%  
+      filter(question_num == i, !is.na(answer_text)) %>% 
+      left_join(race_id, by="respondent_id") %>% 
+      group_by(answer_text, race_id) %>% 
+      summarise(n=n()) %>% 
+      ungroup() %>%
+      filter(!is.na(race_id)) %>% 
+      # fill race where 0 respondents
+      group_by(answer_text) %>% 
+      complete(., race_id = race_levels, fill = list(n = 0)) %>% 
+      ungroup() %>% 
+      group_by(race_id) %>% 
+      mutate(prop = n/sum(n),
+             race_id_label = paste0(race_id, " (N=", sum(n), ")")) %>% 
+      ungroup() %>% 
+      mutate(answer_text = factor(str_wrap(.$answer_text,40),
+                                  ordered=TRUE,
+                                  levels=rev(str_wrap(ans_levels,40)))) %>% 
+      group_by(answer_text) %>% 
+      arrange(prop, .by_group=TRUE) %>% 
+      mutate(race_id = factor(race_id, unique(race_id))) %>%
+      ungroup()
+    
+    summ_race_label <- summ_race %>% 
+      distinct(race_id, race_id_label) %>% 
+      arrange(race_id) %>% 
+      pull(race_id_label)
+    
+    plot_title = paste0(
+      str_wrap(
+        survey_df %>% filter(question_num == i) %>% slice(1) %>% pull(question_text), 60),
+      " (N=", sum(summ_race$n), ")")
+    
+    plt <- ggplot(summ_race, aes(x=race_id, y=prop, fill=answer_text, )) +
+      geom_col(position = position_stack(reverse = TRUE)) + 
+      geom_label(aes(x=race_id, y=prop,
+                     label = if_else(prop > 0.01, sprintf("%1.0f%%", prop*100), NULL),
+                     group = answer_text),
+                 lineheight = 0.9,
+                 position = position_stack(vjust=0.5, reverse=TRUE),
+                 color = "white",
+                 size = 3,
+                 fill = "#666666") +
+      coord_flip() +
+      ggtitle(plot_title) +
+      labs(x="", y="Share of Respondents") +
+      scale_x_discrete(labels = summ_race_label) +
+      scale_y_continuous(labels=scales::percent) +
+      scale_fill_manual(values = rev(pal_div3)) +
+      guides(fill=guide_legend(title=NULL)) +
+      theme(legend.position="bottom") +
+      theme(plot.title = element_text(face="bold"),
+            axis.text=element_text(size=10))
+    
+    png(paste0("output/sfcta/plot/q",i,"_race.png"), width = 11*300, height=(1+length(race_levels)*0.5)*300, res=300)
+    print(plt)
+    dev.off()
+    
+    summ_income <- survey_df %>% 
+      filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
+      filter(question_num == i, !is.na(answer_text)) %>% 
+      left_join(income_id, by="respondent_id") %>% 
+      group_by(answer_text, income_id) %>% 
+      summarise(n=n()) %>% 
+      ungroup() %>%
+      filter(!is.na(income_id)) %>% 
+      group_by(income_id) %>%
+      mutate(prop = n/sum(n),
+             income_id_label = paste0(income_id, " (N=", sum(n), ")")) %>% 
+      ungroup() %>% 
+      mutate(answer_text = factor(str_wrap(.$answer_text,40),
+                                  ordered=TRUE,
+                                  levels=rev(str_wrap(ans_levels,40))),
+             income_id = factor(str_wrap(.$income_id,40),
+                                ordered=TRUE,
+                                levels=str_wrap(income_levels,40)))
+    
+    summ_income_label <- summ_income %>% 
+      distinct(income_id, income_id_label) %>% 
+      arrange(income_id) %>% 
+      pull(income_id_label)
+    
+    plot_title = paste0(
+      str_wrap(
+        survey_df %>% filter(question_num == i) %>% slice(1) %>% pull(question_text), 60),
+      " (N=", sum(summ_income$n), ")")
+    
+    plt <- ggplot(summ_income, aes(fill=answer_text, x=income_id, y=prop)) +
+      geom_col(position = position_stack(reverse = TRUE)) + 
+      geom_label(aes(x=income_id, y=prop, 
+                     label = if_else(prop > 0.01, sprintf("%1.0f%%", prop*100), NULL),
+                     group = answer_text),
+                 lineheight = 0.9,
+                 position = position_stack(vjust=0.5, reverse=TRUE),
+                 color = "white",
+                 size = 3,
+                 fill = "#666666") +
+      coord_flip() +
+      ggtitle(plot_title) +
+      labs(x="", y="Share of Respondents") +
+      scale_x_discrete(labels = summ_income_label) +
+      scale_y_continuous(labels=scales::percent) +
+      scale_fill_manual(values = rev(pal_div3)) +
+      guides(fill=guide_legend(title=NULL)) +
+      theme(legend.position="bottom") +
+      theme(plot.title = element_text(face="bold"),
+            axis.text=element_text(size=10))
+    
+    png(paste0("output/sfcta/plot/q",i,"_income.png"), width = 11*300, height=(4+length(ans_levels)*0.5)*300, res=300)
+    print(plt)
+    dev.off()
+  }
+}
 
 ## Part 2: What did we hear? ====
 ### Question 5,7,8,15,16,21 (No Cross Tabs) ====
@@ -584,7 +552,6 @@ fill_cat <- survey_df %>%
                             ordered=TRUE,
                             level=c("1-2","3","4-5")))
 
-
 summ <- survey_df %>% 
   filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
   filter(question_num == 12 & !is.na(answer_text)) %>% 
@@ -650,12 +617,6 @@ for(question in 1:length(questions_lst)){
     color_palette <- pal_div5
   }
   
-  # num_respondents <-length(
-  #   unique(
-  #     survey_df$respondent_id[
-  #       !survey_df$respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))
-  #     ]))
-  
   ans_levels <- answers %>% 
     select(1,2,3,4) %>% 
     filter(question_num == i) %>% 
@@ -717,26 +678,22 @@ for(question in 1:length(questions_lst)){
     group_by(answer_text, race_id) %>% 
     summarise(n=n()) %>% 
     ungroup() %>% 
-    filter(!is.na(race_id)) %>% 
-    
+    filter(!is.na(race_id)) %>%
+    # fill race where 0 respondents
+    group_by(answer_text) %>% 
+    complete(., race_id = race_levels, fill = list(n = 0)) %>% 
+    ungroup() %>% 
     group_by(race_id) %>% 
     mutate(prop = n/sum(n),
-           race_id_label = str_wrap(paste0(race_id, " (N=", sum(n), ")"),40)) %>% 
+           race_id_label = paste0(race_id, " (N=", sum(n), ")")) %>% 
     ungroup() %>% 
-    
-    # add_row(answer_text = "Yes, I would ride Muni to school with my child more often if it cost less",
-    #         race_id = "Native Hawaiian or other Pacific Islander",
-    #         n = 0,
-    #         prop = 0,
-    #         race_id_label = "Native Hawaiian or other Pacific\nIslander (N=2)") %>% 
-
+    filter(!is.na(prop)) %>% 
     mutate(answer_text = factor(str_wrap(.$answer_text,40),
                                 ordered=TRUE,
                                 levels=rev(str_wrap(ans_levels,40)))) %>% 
-    
     group_by(answer_text) %>% 
     arrange(prop, .by_group=TRUE) %>% 
-    mutate(race_id = factor(str_wrap(race_id,40), levels=str_wrap(race_id,40))) %>% 
+    mutate(race_id = factor(str_wrap(race_id,40), unique(str_wrap(race_id,40)))) %>%
     ungroup()
   
   summ_race_label <- summ_race %>% 
