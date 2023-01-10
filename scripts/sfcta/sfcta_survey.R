@@ -497,6 +497,12 @@ for(question in 1:length(questions_lst)){
     arrange(desc(answer_num)) %>% 
     pull(answer_en)
   
+  num_respondents <- survey_df %>% 
+    filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>%
+    filter(question_num == i & !is.na(answer_text)) %>% 
+    distinct(respondent_id) %>% 
+    nrow()
+  
   summ <- survey_df %>% 
     filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>%
     filter(question_num == i & !is.na(answer_text)) %>% 
@@ -505,7 +511,7 @@ for(question in 1:length(questions_lst)){
     group_by(answer_text) %>% 
     summarise(n=n()) %>% 
     ungroup() %>% 
-    mutate(prop = n/sum(n)) %>% 
+    mutate(prop = n/num_respondents) %>% 
     arrange(prop) %>% 
     mutate(answer_text = factor(str_wrap(.$answer_text,40),
                                 ordered=TRUE,
@@ -514,7 +520,7 @@ for(question in 1:length(questions_lst)){
   plot_title = paste0(
     str_wrap(
       survey_df %>% filter(question_num == i) %>% slice(1) %>% pull(question_text), 60),
-    " (N=", sum(summ$n), ")")
+    " (N=", num_respondents, ")")
   
   plt <- ggplot(summ, aes(x=answer_text,y=prop)) +
     geom_bar(stat="identity", fill="#006c69", alpha=0.9) +
@@ -626,6 +632,11 @@ for(question in 1:length(questions_lst)){
     pull(answer_en)
   
   # OVERVIEW
+  num_respondents <- survey_df %>% 
+    filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
+    filter(question_num == i & !is.na(answer_text)) %>% 
+    distinct(respondent_id) %>% nrow()
+  
   summ <- survey_df %>% 
     filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
     filter(question_num == i & !is.na(answer_text)) %>% 
@@ -635,7 +646,7 @@ for(question in 1:length(questions_lst)){
     group_by(answer_text) %>% 
     summarise(n=n()) %>% 
     ungroup() %>% 
-    mutate(prop = n/sum(n)) %>% 
+    mutate(prop = n/num_respondents) %>% 
     arrange(prop) %>% 
     mutate(answer_text = factor(str_wrap(.$answer_text,40),
                                 ordered=TRUE,
@@ -644,7 +655,7 @@ for(question in 1:length(questions_lst)){
   plot_title = paste0(
     str_wrap(
       survey_df %>% filter(question_num == i) %>% slice(1) %>% pull(question_text), 60),
-    " (N=", sum(summ$n), ")")
+    " (N=", num_respondents, ")")
   
   plt <- ggplot(summ,aes(x=answer_text,y=prop)) +
     geom_bar(stat="identity", fill="#006c69", alpha=0.9) +
@@ -823,10 +834,11 @@ for(question in 1:length(questions_lst)){
   
   # Overview
   
-  # num_respondents <- survey_df %>% 
-  #   filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
-  #   filter(question_num == i, !is.na(answer_text)) %>% 
-  #   distinct(respondent_id) %>% nrow()
+  num_respondents <- survey_df %>%
+    filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>%
+    filter(question_num == i, !is.na(answer_text)) %>%
+    group_by(sub_question_text) %>% 
+    distinct(respondent_id) %>% count(sub_question_text) %>% ungroup()
   
   summ <- survey_df %>% 
     filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
@@ -1152,7 +1164,7 @@ for(question in 1:length(questions_lst)){
   
   num_respondents <- survey_df %>% 
     filter(!respondent_id %in% unique(c(respondent_filter_1, respondent_filter_3))) %>% 
-    filter(respondent_id %in% q12_respondent_id) %>% 
+    # filter(respondent_id %in% q12_respondent_id) %>% 
     filter(question_num == i & !is.na(answer_text)) %>% 
     distinct(respondent_id) %>% 
     nrow()
