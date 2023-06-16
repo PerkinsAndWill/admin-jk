@@ -40,6 +40,51 @@ library(sf)
 
 route_geom <- read_rds("data/septa/route_geom_sample.rds")
 
+# ID VARIABLES =================================================================
+gdb_path <- "G:/Current/SEPTA_Bus_Network_Redesign_2019_0467/Data/GDBs"
+# "bg_with_philly_neighborhoods"
+neighborhood_geom <- read_sf(file.path(gdb_path,
+                                       "SEPTA_CBNR_base.gdb"),
+                             layer="bg_with_philly_neighborhoods")
+
+region_geom <- 
+  read_sf(file.path(gdb_path,
+                    "SEPTA_CBNR_base.gdb"),
+          layer="Communities_Region") %>% 
+  select(location=Location, geometry=Shape) %>% 
+  mutate(location = str_remove_all(location, "County - |Philadelphia - "))
+
+route_start <- 
+  route_geom %>% 
+  st_coordinates() %>% 
+  as_tibble() %>% 
+  select(X,Y) %>% 
+  filter(row_number()==1) %>% 
+  st_as_sf(coords = c("X","Y"), crs=4326)
+
+route_end <- 
+  route_geom %>% 
+  st_coordinates() %>% 
+  as_tibble() %>% 
+  select(X,Y) %>% 
+  filter(row_number()==nrow(.)) %>% 
+  st_as_sf(coords = c("X","Y"), crs=4326)
+
+route_start_region <- 
+  route_start %>% 
+  st_transform(2272) %>% 
+  st_intersection(region_geom) %>% 
+  st_drop_geometry() %>% 
+  pull(location)
+
+route_end_region <- 
+  route_end %>% 
+  st_transform(2272) %>% 
+  st_intersection(region_geom) %>% 
+  st_drop_geometry() %>% 
+  pull(location)
+
+
 # MAP MATCHING =================================================================
 library(valhallr)
 library(leaflet)
@@ -109,32 +154,104 @@ osm_link_geoms <- osm_query_res$osm_lines %>%
   arrange(edge_sequence) %>%
   st_as_sf()
 
+
+matched_rt_shape
+
+osm_link_reorder_list <- list()
+
+for(i in 1:nrow(osm_link_geoms)){
+  osm_link <- osm_link_geoms[i,] %>% 
+    mutate(azimuth = map_dbl(geometry, ~st_avg_line_azimuth(.,4326)))
+
+  osm_link_buffer <- osm_link %>% st_buffer(2)
+  
+  rt_shape_intersect <- matched_rt_shape %>% 
+    st_intersection(osm_link_buffer) %>% 
+    st_as_sf() %>% 
+    mutate(azimuth = map_dbl(., ~st_avg_line_azimuth(.,4326)))
+  
+  if(osm_link$azimuth+15 >= rt_shape_intersect$azimuth & 
+     rt_shape_intersect$azimuth >= osm_link$azimuth-15){
+    print(paste0(i,"/",nrow(osm_link_geoms)," - ",osm_link$osm_link_id,": MATCH"))
+    osm_link_fix <- osm_link
+  } else{
+    print(paste0(i,"/",nrow(osm_link_geoms)," - ",osm_link$osm_link_id,": REVERSE"))
+    osm_link_fix <- 
+      osm_link %>% 
+      st_coordinates() %>% 
+      as_tibble() %>% 
+      select(X,Y) %>% 
+      mutate(temp_sequence = seq_along(X)) %>% 
+      arrange(desc(temp_sequence)) %>% 
+      select(X,Y) %>% 
+      as.matrix() %>% 
+      st_linestring() %>% 
+      st_sfc(crs=4326) %>% 
+      st_as_sf() %>% 
+      rename(geometry = x) %>% 
+      mutate(osm_link_id = osm_link$osm_link_id,
+             name = osm_link$name,
+             highway = osm_link$highway,
+             edge_sequence = osm_link$edge_sequence,
+             azimuth = map_dbl(., ~st_avg_line_azimuth(.,4326)))
+  }
+  
+  osm_link_reorder_list[[i]] <- osm_link_fix
+}
+
+osm_link_reorder <- do.call(rbind, osm_link_reorder_list)
+
+
 output_tbl <- 
-  osm_link_geoms %>% 
+  osm_link_reorder %>% 
   st_transform(2272) %>% 
   mutate(length_ft = as.numeric(st_length(geometry)),
-         length_mi = length_ft/5280,
-         azimuth = map_dbl(geometry, ~st_avg_line_azimuth(.x,2272))) %>% 
+         # azimuth = map_dbl(geometry, ~st_avg_line_azimuth(.,4326)),
+         length_mi = length_ft/5280) %>% 
   st_drop_geometry() %>% 
   
   # turn-by-turn directions
-  # group_by(name) %>%
-  # mutate(sequence_point = case_when(row_number()==1 ~"start",
-  #                                   row_number()==n() ~"end")) %>%
-  # ungroup() %>% 
-  # 
-  # mutate(turn_angle = case_when(sequence_point=="start" ~azimuth-lag(azimuth, n=1L, default=NA),
-  #                               TRUE ~as.numeric(NA))) %>% 
-  # mutate(turn_angle = case_when(turn_angle < 0 ~turn_angle+360,
-  #                               TRUE ~turn_angle)) %>% 
-  # mutate(turn_direction = case_when(turn_angle > 180 ~"left",
-  #                                   turn_angle < 180 ~"right",
-  #                                   TRUE ~as.character(NA))) %>% 
+  group_by(name) %>%
+  mutate(sequence_point = case_when(row_number()==1 ~"start",
+                                    row_number()==n() ~"end")) %>%
+  ungroup() %>%
+
+  mutate(turn_angle = case_when(sequence_point=="start" ~azimuth-lag(azimuth, n=1L, default=NA),
+                                TRUE ~as.numeric(NA))) %>%
+  mutate(turn_angle = case_when(turn_angle < 0 ~turn_angle+360,
+                                TRUE ~turn_angle)) %>%
+  mutate(turn_direction = case_when(turn_angle > 180 ~"left",
+                                    turn_angle < 180 ~"right",
+                                    TRUE ~as.character(NA))) %>%
 
   group_by(name) %>% 
   summarise(length_mi = sum(length_mi,na.rm=TRUE),
+            turn_direction = unique(turn_direction),
             sequence = min(edge_sequence)) %>% 
   ungroup() %>% 
+  filter(!(is.na(turn_direction) & sequence > 1)) %>%
   arrange(sequence) %>% 
   select(-sequence) #%>% 
   # clipr::write_clip()
+
+
+# CONCATENATE TEXT =============================================================
+text_start <- paste0("Beginning at the intersection of ",output_tbl$name[1]," and X, located in ",route_start_region,", ")
+text_mid_list <- list()
+for(i in 2:nrow(output_tbl)-1){
+  index = i+1
+  if(i==1){
+    text <-  paste0(" then ", output_tbl$turn_direction[index]," via ",output_tbl$name[index],", ")
+  } else{
+    text <- paste0(output_tbl$turn_direction[index]," via ",output_tbl$name[index],", ")
+  }
+  text_mid_list[[i]] <- text
+  # text_mid_list = paste0(text_mid_list,text)
+}
+
+text_mid <- text_mid_list %>% unlist() %>% paste(., collapse="")
+
+text_end <- paste0("to the intersection of ",output_tbl$name[19]," and Y, located in ",route_end_region,".")
+
+text_compiled <- paste0(text_start, text_mid, text_end)
+
