@@ -60,7 +60,7 @@ gtfs_routes <-
   gtfs_feed$routes %>%
   select(route_id, route_short_name, route_long_name, route_type, route_color)
 
-write_rds(gtfs_routes, "data/prt/gtfs_routes.rds")
+# write_rds(gtfs_routes, "data/prt/gtfs_routes.rds")
 
 # gtfs_trips %>% 
 #   left_join(gtfs_routes, by="route_id") %>% 
@@ -106,10 +106,11 @@ gtfs_stops_geom <-
   left_join(gtfs_feed$stops %>% select(stop_id,stop_code,stop_name,stop_lat,stop_lon), by="stop_id") %>% 
   st_as_sf(coords = c("stop_lon","stop_lat"), crs=4326)
 
-gtfs_stops_geom %>% st_drop_geometry() %>% distinct(trip_id)
-
-write_rds(gtfs_stops_geom, "data/prt/gtfs_stops_geom.rds")
-
+# gtfs_stops_geom %>% st_drop_geometry() %>% distinct(trip_id)
+# 
+# write_rds(gtfs_stops_geom, "data/prt/gtfs_stops_geom.rds")
+# 
+# gtfs_stops_geom <- read_rds("data/prt/gtfs_stops_geom.rds")
 # headway
 gtfs_stops_geom %>% 
   st_drop_geometry() %>% #filter(route_id=="7-202") %>% 
